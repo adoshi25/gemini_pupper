@@ -291,14 +291,40 @@ async def move_tool(
 #             radius is the problem, and sends the same arc again), or a success
 #             that quietly turned slower
 #   Test: python3 lab/test.py todo4
-# ========== TODO 4: YOUR CODE HERE ==========
+
 @tool(
     "arc",
-    "TODO 4: describe the arc tool for Gemini.",
-    direction=Param("string", "TODO 4", enum=["left", "right"]),
-    angle=Param("number", "TODO 4"),
-    radius=Param("number", "TODO 4", required=False),
-    speed=Param("number", "TODO 4", required=False),
+    "Walk forward and turn at the same time, along part of a circle. Use it for "
+    "'walk in a circle', 'curve left', 'go around me' and 'make a U-turn'. "
+    "angle is how much of the circle to go around: 90 is a quarter circle, 180 a half "
+    "circle (a U-turn), 360 a full circle. "
+    f"Pupper turns at most {LIMITS.wz_max} deg/s, so the radius must be at least "
+    f"speed / {math.radians(LIMITS.wz_max):.2f}: about "
+    f"{0.4 / math.radians(LIMITS.wz_max):.2f} m at a walk (0.4 m/s) and "
+    f"{RUN_DEFAULT_SPEED / math.radians(LIMITS.wz_max):.2f} m at a run ({RUN_DEFAULT_SPEED} m/s). "
+    f"One arc goes at most {LIMITS.distance_max} m along the path, so a big circle may "
+    "need a smaller radius or a lower angle. "
+    "Radius 0 is a sharp corner: Pupper turns in place. "
+    "Do not use arc for shapes with straight sides and sharp corners (a square, a star, "
+    "a rectangle): use move and turn for those. "
+    + PREPARES_MOVE,
+    direction=Param("string", "Which way the circle curves: left is counter-clockwise, right is clockwise.", enum=["left", "right"]),
+    angle=Param(
+        "number",
+        "Degrees of the circle to go around, as a positive number. Required. "
+        "90 is a quarter circle, 180 a half circle, 360 a full circle.",
+    ),
+    radius=Param(
+        "number",
+        "Radius of the circle in meters. Default 0.5. 0 means a sharp corner (turn in place). "
+        "Smaller circles need a slower speed.",
+        required=False,
+    ),
+    speed=Param(
+        "number",
+        "Forward speed in m/s, as a positive number. Default 0.4. A faster speed needs a larger radius.",
+        required=False,
+    ),
 )
 async def arc_tool(
     robot: Robot,
@@ -307,23 +333,42 @@ async def arc_tool(
     radius: float = 0.5,
     speed: float | None = None,
 ) -> Result:
-    # speed is None when Gemini gave none: use robot.speeds().walk (0.4 m/s walking).
-    # 1. No circle to follow: if radius < 0 or speed <= 0, return Result(False, ...)
-    #    saying which, and what works: "radius must be 0 m or more".
-    #    Radius 0 is a sharp corner: turn in place like your turn tool (+-turn_speed,
-    #    for abs(angle) / turn_speed s), and say so in front of walk's reply:
-    #      return with_note("Radius 0: turned in place (a sharp corner).", await walk(...))
-    # 2. Too tight: if math.degrees(speed / radius) > wz_max, return a failure
-    #    with the smallest radius that works: speed / math.radians(wz_max), where
-    #    wz_max = robot.speeds().limits.wz_max (LIMITS.wz_max walking).
-    #    (check_move would refuse it too, but "|wz|<=114.0" doesn't tell Gemini that
-    #    the radius is the problem.) Round up: f"{math.ceil(r * 100) / 100} m"
-    # 3. wz_deg = math.degrees(speed / radius): + to the left, - to the right.
-    # 4. seconds = abs(angle) / abs(wz_deg)
-    # 5. return await walk(robot, speed, 0.0, wz_deg, seconds)  (walk checks it)
-    # angle has no default: Gemini must say how much of the circle (left out, it
-    # walked a quarter when asked for a circle). The tool registry refuses a call without it.
-    # Examples: arc("left", 90) -> vx 0.4, wz +45.8 for 1.96 s |
-    #   arc("right", angle=180, radius=1.0, speed=0.6) -> vx 0.6, wz -34.4 for 5.24 s
-    return not_written("TODO 4", "arc in lab/part2_walk.py")
-# ====================================
+    speeds = robot.speeds()  # the limits where Pupper will be (a walking trick has its own)
+    if speed is None:
+        speed = speeds.walk  # 0.4 m/s walking
+
+    # 1. No circle to follow
+    if radius < 0:
+        return Result(False, f"no arc: radius must be 0 m or more (you gave {radius:g} m); 0 is a sharp corner")
+    if speed <= 0:
+        return Result(False, f"no arc: speed must be more than 0 m/s (you gave {speed:g})")
+
+    # Radius 0 is a sharp corner: turn in place, like the turn tool
+    if radius == 0:
+        turn_speed = speeds.turn
+        wz_deg = turn_speed if direction == "left" else -turn_speed
+        seconds = abs(angle) / turn_speed
+        return with_note(
+            "Radius 0: turned in place (a sharp corner). ",
+            await walk(robot, 0.0, 0.0, wz_deg, seconds),
+        )
+
+    # 2. Too tight for this speed: say which radius works
+    wz_max = speeds.limits.wz_max
+    if math.degrees(speed / radius) > wz_max + 1e-9:
+        smallest = math.ceil(speed / math.radians(wz_max) * 100) / 100
+        return Result(
+            False,
+            f"too tight: at {speed:g} m/s the radius must be at least {smallest} m "
+            f"(you gave {radius:g} m); use a larger radius or a lower speed",
+        )
+
+    # 3. and 4. Turning rate and time
+    wz_deg = math.degrees(speed / radius)  # + to the left
+    if direction == "right":
+        wz_deg = -wz_deg
+    seconds = abs(angle) / abs(wz_deg)
+
+    # 5. walk checks the rest (duration, distance) with check_move
+    return await walk(robot, speed, 0.0, wz_deg, seconds)
+
