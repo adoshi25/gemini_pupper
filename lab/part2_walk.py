@@ -51,15 +51,36 @@ def check_move(vx: float, vy: float, wz_deg: float, duration: float, limits: Mov
     Test:                python3 lab/test.py todo2
     """
     # ========== TODO 2: YOUR CODE HERE ==========
-    # Check the rules one at a time, and return the first reason you find.
-    # Each reason says what was wrong AND the limit, e.g. f"too fast: limits are |vx|<={limits.vx_max} m/s, ..."
-    # 1. Too fast: abs(vx) > limits.vx_max, or abs(vy) > limits.vy_max, or abs(wz_deg) > limits.wz_max.
-    # 2. Too slow to move at all: vx, vy AND wz_deg are ALL below their minimums (vx_min, vy_min, wz_min).
-    #    (Only all three: a turn in place has vx = vy = 0, and that is fine.)
-    # 3. The duration must be more than 0 and at most limits.duration_max.
-    # 4. Too far: speed * duration > limits.distance_max, where speed = (vx**2 + vy**2) ** 0.5.
-    # 5. Nothing wrong: return None.
-    return "TODO 2 is not written yet (check_move in lab/part2_walk.py)"
+    # 1. Too fast (abs, because backward and right are negative)
+    if abs(vx) > limits.vx_max or abs(vy) > limits.vy_max or abs(wz_deg) > limits.wz_max:
+        return (
+            f"too fast: limits are |vx|<={limits.vx_max} m/s, "
+            f"|vy|<={limits.vy_max} m/s, |wz|<={limits.wz_max} deg/s"
+        )
+
+    # 2. Too slow to move at all: only if ALL three are below their minimums
+    #    (a turn in place has vx = vy = 0, and that is valid)
+    if abs(vx) < limits.vx_min and abs(vy) < limits.vy_min and abs(wz_deg) < limits.wz_min:
+        return (
+            f"too slow to move: need |vx|>={limits.vx_min} m/s, "
+            f"|vy|>={limits.vy_min} m/s, or |wz|>={limits.wz_min} deg/s"
+        )
+
+    # 3. Duration: more than 0, at most duration_max
+    if duration <= 0 or duration > limits.duration_max:
+        return f"duration must be more than 0 and at most {limits.duration_max} s"
+
+    # 4. Too far: speed * duration
+    speed = (vx**2 + vy**2) ** 0.5
+    distance = speed * duration
+    if distance > limits.distance_max:
+        return (
+            f"that would travel {distance:.2f} m, more than {limits.distance_max} m "
+            f"in one move: split it into shorter moves"
+        )
+
+    # 5. Nothing wrong
+    return None
     # ====================================
 
 
