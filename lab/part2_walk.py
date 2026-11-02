@@ -50,7 +50,7 @@ def check_move(vx: float, vy: float, wz_deg: float, duration: float, limits: Mov
                            Fails:  "too long", or "{limits.duration_max:.0f}" ("20")
     Test:                python3 lab/test.py todo2
     """
-    # ========== TODO 2: YOUR CODE HERE ==========
+
     # 1. Too fast (abs, because backward and right are negative)
     if abs(vx) > limits.vx_max or abs(vy) > limits.vy_max or abs(wz_deg) > limits.wz_max:
         return (
@@ -81,7 +81,7 @@ def check_move(vx: float, vy: float, wz_deg: float, duration: float, limits: Mov
 
     # 5. Nothing wrong
     return None
-    # ====================================
+
 
 
 async def walk(robot: Robot, vx: float, vy: float, wz_deg: float, duration: float) -> Result:
@@ -159,32 +159,63 @@ async def walk(robot: Robot, vx: float, vy: float, wz_deg: float, duration: floa
 #     Fails:  "move vx=0 vy=-0.4 ... queued" (Gemini then tells them it's running)
 #   - a move check_move refuses comes back as a failure with check_move's reason
 #   Test: python3 lab/test.py todo3  (turn is checked first, on its own)
-# ========== TODO 3: YOUR CODE HERE ==========
+
 @tool(
     "turn",
-    "TODO 3: describe the turn tool for Gemini.",
-    direction=Param("string", "TODO 3", enum=["left", "right"]),
-    angle=Param("number", "TODO 3", required=False),
+    "Turn in place, to the left or right, by an angle in degrees. Pupper stays on the spot. "
+    "Use it for 'turn left', 'turn around' and 'spin'. To walk and turn at the same time "
+    "(a curve or circle), use arc instead. A turn takes about angle / 60 seconds "
+    f"(90 degrees is 1.5 s), and one turn can last at most {LIMITS.duration_max} s. "
+    + PREPARES_MOVE,
+    direction=Param("string", "Which way to turn: left is counter-clockwise, right is clockwise.", enum=["left", "right"]),
+    angle=Param(
+        "number",
+        "How far to turn, in degrees, as a positive number. Default 90. "
+        "Examples: 90 is a quarter turn or a square's corner, 120 a triangle's corner, "
+        "180 turns around, 360 is a full spin.",
+        required=False,
+    ),
 )
 async def turn_tool(robot: Robot, direction: str, angle: float = 90.0) -> Result:
-    # Turn in place: no forward or sideways speed, just a turning speed, for as long
-    # as the angle takes.
-    # 1. The turning speed: turn_speed = robot.speeds().turn (60 deg/s walking; a
-    #    walking trick has its own). wz_deg: +turn_speed to the left (counter-clockwise),
-    #    -turn_speed to the right.
-    # 2. How long it takes: seconds = abs(angle) / turn_speed
-    #    (90 degrees at 60 deg/s takes 1.5 s)
-    # 3. return await walk(robot, 0.0, 0.0, wz_deg, seconds)
-    return not_written("TODO 3", "turn in lab/part2_walk.py")
+    turn_speed = robot.speeds().turn  # deg/s: 60 walking; a walking trick has its own
+    wz_deg = turn_speed if direction == "left" else -turn_speed  # + is left (counter-clockwise)
+    seconds = abs(angle) / turn_speed  # 90 degrees at 60 deg/s takes 1.5 s
+    return await walk(robot, 0.0, 0.0, wz_deg, seconds)
 
 
 @tool(
     "move",
-    "TODO 3: describe the move tool for Gemini.",
-    direction=Param("string", "TODO 3", enum=["forward", "backward", "left", "right"]),
-    run=Param("boolean", "TODO 3", required=False),
-    speed=Param("number", "TODO 3", required=False),
-    duration=Param("number", "TODO 3", required=False),
+    "Walk or run in a straight line: forward, backward, or sideways (left or right). "
+    "Use it for 'walk forward', 'back up', 'sidestep' and 'run'. "
+    f"Walking is up to {LIMITS.vx_max} m/s forward and backward, and up to {LIMITS.vy_max} m/s sideways. "
+    f"Running is {RUN_MIN_SPEED} to {LIMITS.vx_max} m/s, forward or backward only: sideways never runs. "
+    f"One move lasts at most {LIMITS.duration_max} s and goes at most {LIMITS.distance_max} m; "
+    "for a longer trip, make several moves in a row. "
+    "To turn, use turn. For curves and circles, use arc. "
+    + PREPARES_MOVE,
+    direction=Param(
+        "string",
+        "Which way to go. forward and backward are along the body; left and right are sidesteps.",
+        enum=["forward", "backward", "left", "right"],
+    ),
+    run=Param(
+        "boolean",
+        f"true to run (forward or backward only). Running is at least {RUN_MIN_SPEED} m/s. Default false.",
+        required=False,
+    ),
+    speed=Param(
+        "number",
+        "Speed in m/s, as a positive number. Default 0.4 when walking, "
+        f"{RUN_DEFAULT_SPEED} when running. Running never goes below {RUN_MIN_SPEED}, "
+        f"and sideways is at most {LIMITS.vy_max}.",
+        required=False,
+    ),
+    duration=Param(
+        "number",
+        "How long to move, in seconds. Default 1.5. Distance = speed x duration: "
+        f"2 m at 0.4 m/s is 5 s. At most {LIMITS.duration_max} s.",
+        required=False,
+    ),
 )
 async def move_tool(
     robot: Robot,
@@ -193,25 +224,29 @@ async def move_tool(
     speed: float | None = None,
     duration: float = 1.5,
 ) -> Result:
-    # Gemini may leave out run, speed and duration (then they have the defaults above:
-    # speed is None when Gemini gave none). Work out ONE speed, then split it into vx and vy.
-    # 1. The speed:
-    #    - running (run is True AND the direction is forward or backward): at least
-    #      RUN_MIN_SPEED; if Gemini gave no speed, RUN_DEFAULT_SPEED.
-    #      (max(a, b) is the bigger of two numbers: max(0.6, RUN_MIN_SPEED) is 1.0.)
-    #    - otherwise (walking, or any sideways move): speed, or robot.speeds().walk if
-    #      Gemini gave none (0.4 m/s walking; a walking trick has its own).
-    # 2. Split it by direction (the robot's convention: +x forward, +y LEFT):
-    #        forward: vx = +speed, vy = 0      backward: vx = -speed, vy = 0
-    #        left:    vx = 0, vy = +speed      right:    vx = 0, vy = -speed
-    # 3. If Gemini asked to run sideways, you walk instead: say so, or Gemini will
-    #    tell the person it's running. Start the reply with a note:
-    #      note = "Sideways never runs; walking instead." (or "" otherwise)
-    #      return with_note(note, await walk(robot, vx, vy, 0.0, duration))
-    # Examples: move("forward") -> vx 0.4 | move("backward", run=True) -> vx -1.2 |
-    #   move("forward", run=True, speed=0.6) -> vx 1.0 | move("right", run=True) -> vy -0.4
-    return not_written("TODO 3", "move in lab/part2_walk.py")
-# ====================================
+    sideways = direction in ("left", "right")
+    running = run and not sideways  # sideways never runs
+
+    # 1. One speed
+    if running:
+        speed = RUN_DEFAULT_SPEED if speed is None else max(speed, RUN_MIN_SPEED)
+    elif speed is None:
+        speed = robot.speeds().walk  # 0.4 m/s walking
+
+    # 2. Split it by direction (+x forward, +y LEFT)
+    if direction == "forward":
+        vx, vy = speed, 0.0
+    elif direction == "backward":
+        vx, vy = -speed, 0.0
+    elif direction == "left":
+        vx, vy = 0.0, speed
+    else:  # right
+        vx, vy = 0.0, -speed
+
+    # 3. Tell Gemini when we changed what it asked for
+    note = "Sideways never runs; walking instead. " if run and sideways else ""
+    return with_note(note, await walk(robot, vx, vy, 0.0, duration))
+
 
 
 # TODO 4: the arc tool: walk forward and turn at the same time, along part of a
