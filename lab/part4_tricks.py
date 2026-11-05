@@ -58,18 +58,23 @@ async def play_trick(robot: Robot, name: str) -> Result:
     trick.kind == "reference" play with robot.play_reference_trick(trick)
     instead. Test: python3 lab/test.py optional_jump
     """
-    # ========== TODO 7: YOUR CODE HERE ==========
-    # NOW:
-    # 1. trick = robot.tricks.get(name). If it is None, fail, and list the real names: list(robot.tricks).
-    # 2. note = await prepare_to_move(robot)
-    # THE JOB:
-    # 3. job = lambda: play_policy_trick(robot, trick)
-    #    (a lambda is a function in one line: robot.queue calls it later, when it's the trick's turn)
-    # QUEUE IT:
-    # 4. Decide then: which state is Pupper in once the job is done? (Read the card above.)
-    # 5. return with_note(note, await robot.queue(f"trick {name}", job, trick.total_time, then=...))
-    return not_written("TODO 7", "play_trick in lab/part4_tricks.py")
-    # ====================================
+
+    # 1. Look up the trick; if there is none, list the real names
+    trick = robot.tricks.get(name)
+    if trick is None:
+        return Result(False, f"unknown trick '{name}'; available: {list(robot.tricks)}")
+
+    # 2. Get ready: ends follow mode and returns a note ("" if not following)
+    note = await prepare_to_move(robot)
+
+    # 3. The job, defined now and run later by the queue
+    job = lambda: play_policy_trick(robot, trick)
+
+    # 4. Queue it. A playback trick that ends standing hands the legs back to
+    #    locomotion; any other trick holds its controller, and so does an interactive one.
+    then = LOCOMOTION if (not trick.interactive and trick.end_pose == "standing") else trick
+    return with_note(note, await robot.queue(f"trick {name}", job, trick.total_time, then=then))
+
 
 
 async def play_policy_trick(robot: Robot, trick: Trick) -> Result:
@@ -145,12 +150,18 @@ async def play_policy_trick(robot: Robot, trick: Trick) -> Result:
 #   - name keeps enum=TRICK_NAMES
 #   - it contains the word "pose": "A trick keeps its final pose until the next motion."
 #   Test: python3 lab/test.py todo8
-# ========== TODO 8: YOUR CODE HERE ==========
+
 @tool(
     "play_trick",
-    "TODO 8: describe play_trick for Gemini." + PREPARES_MOVE + "\nTricks:\n{tricks}",
-    name=Param("string", "TODO 8", enum=TRICK_NAMES),
+    "Play one of Pupper's tricks, such as a push-up, a swim or a sneeze. "
+    "Use the exact name from the list. Some tricks start from standing, so Pupper "
+    "stands up first if it is lying down. A trick keeps its final pose until the next "
+    "motion: after a trick that ends lying down, any new motion first gets Pupper up. "
+    "Interactive tricks (the ones that list actions) are states Pupper stays in: it keeps "
+    "the pose, and you can then ask for the listed actions with interactive_action. "
+    "Tricks:\n{tricks}" + PREPARES_MOVE,
+    name=Param("string", "The exact trick name from the list.", enum=TRICK_NAMES),
 )
-# ====================================
+
 async def play_trick_tool(robot: Robot, name: str) -> Result:
     return await play_trick(robot, name)

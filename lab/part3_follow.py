@@ -47,13 +47,12 @@ async def prepare_to_move(robot: Robot) -> str:
                          - robot_status (a question) keeps following
     Test:                python3 lab/test.py todo5
     """
-    # ========== TODO 5: YOUR CODE HERE ==========
-    # 1. If robot.following is False, there is nothing to do: return "".
-    # 2. Turn the person follower off: await robot.stop_following()
-    # 3. Stand still (the follower may have been walking): robot.send_speed(0, 0, 0)
-    # 4. Return the note Gemini will read, e.g. "Stopped following the person first."
-    return ""  # for now: following never ends
-    # ====================================
+
+    if not robot.following:
+        return ""
+    await robot.stop_following()
+    robot.send_speed(0, 0, 0)
+    return "Stopped following the person first."
 
 
 # ============================================================ what Gemini reads
@@ -67,14 +66,16 @@ async def prepare_to_move(robot: Robot) -> str:
 #   - prompt.md's Follow mode section contains "end" or "stop"
 #   - follow(enabled=True) starts the follower, follow(enabled=False) stops it
 #   Test: python3 lab/test.py todo6
-# ========== TODO 6: YOUR CODE HERE ==========
+
 @tool(
     "follow",
-    "TODO 6: describe the follow tool for Gemini.",
-    enabled=Param("boolean", "TODO 6"),
+    "Start or stop follow mode: Pupper follows the nearest person, keeping its distance, "
+    "walking in a straight line (it cannot go around furniture, so lead it around obstacles). "
+    "Use it for 'follow me', 'come here' and 'stay with me', and with enabled=false for 'stop following'. "
+    "Follow mode stays on while you talk, answer questions, or look at the camera "
+    "('what do you see?'). Any motion tool (move, turn, arc, play_trick, stand_up, lie_down) "
+    "ends follow mode, and the reply says so. Starting follow mode clears any queued moves.",
+    enabled=Param("boolean", "true to start following the nearest person, false to stop following."),
 )
 async def follow_tool(robot: Robot, enabled: bool) -> Result:
-    # One line: robot.set_following(enabled) (provided) starts or stops following, and
-    # returns the Result Gemini should hear. Await it and return it.
-    return not_written("TODO 6", "follow in lab/part3_follow.py")
-# ====================================
+    return await robot.set_following(enabled)
